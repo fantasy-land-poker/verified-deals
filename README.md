@@ -1,9 +1,9 @@
 # Verify Upper Hand Deals
 
-Allows you to verify any deal across an [Upper Hand](https://www.playupperhand.com) game once the "Verified Deals" features is enabled.
+Allows you to verify any deal across an [Upper Hand](https://www.playupperhand.com) game once the "Verified Deals" feature is enabled.
 
 Once enabled, all deals are determined through a published algorithm that takes 
-both a pre-commited cryptgraphic hash and a future public source of randomness (DRand).
+both a pre-commited cryptographic hash and a future public source of randomness (DRand).
 
 ## How it works
 
