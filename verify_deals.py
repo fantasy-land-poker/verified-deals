@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Verify Fantasy Land deals on your own computer (Python 3.10+).
+"""Verify Upper Hand deals on your own computer (Python 3.10+).
 
 Run from this folder:
     python3 -m venv .venv
     .venv/bin/pip install -r requirements.txt
     .venv/bin/python verify_deals.py
+
+Supports internal server-generated randomness and optional external drand
+randomness. The mode is read from the public JSON; you do not need to choose it.
 
 The program asks for the public JSON and revealed-secret JSON separately.
 Then enter a hand number, each player's Fantasyland status/card count, and
@@ -35,13 +38,16 @@ def main():
     # 3. Verify the revealed seed matches the original public commitment hash.
     secret = verify_public_commitment(public, revealed['revealed_secret'])
     print('Public commitment hash verified.')
-
-    # 4. Verify drand's signature for the round fixed in the public commitment.
-    randomness = verify_drand_beacon(public, revealed)
-    if randomness is None:
-        print('This game ended before its beacon was received; no cards were dealt.')
-        return
-    print('drand signature and public randomness verified.')
+    # 4. Verify external randomness when enabled; internal mode uses the seed alone.
+    if public.get('randomness_mode') == 'server':
+        randomness = bytes(32)  # Fixed domain input, not an entropy source.
+        print('Internal randomness: server-generated seed only; no drand dependency.')
+    else:
+        randomness = verify_drand_beacon(public, revealed)
+        if randomness is None:
+            print('This game ended before its beacon was received; no cards were dealt.')
+            return
+        print('External randomness: drand signature and public randomness verified.')
     print('Compare the expected cards below with your own game records.')
     print('For Chinese deals, answer yes for both players. Ctrl+C stops at any prompt.')
 

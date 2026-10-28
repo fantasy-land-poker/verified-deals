@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import unittest
 
-from verification.protocol import verify_game_and_format, verify_public_commitment
+from verification.protocol import verify_game_and_format, verify_public_commitment, deal_parameters, sha, PREFIX
 from verification.drand import verify_signature, verify_drand_beacon
 from verification.deals import recreate_deck, build_hand_deals
 from verification.console import ask_hand_number, ask_fantasyland, ask_first_player, ask_for_json, show_hand
@@ -11,6 +11,7 @@ from tests.sample_game import SAMPLE
 import subprocess
 import sys
 import tempfile
+import struct
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,7 +20,8 @@ def verify_exports(public, private):
     # The same explicit verification sequence as the entry file.
     verify_game_and_format(public, private)
     secret = verify_public_commitment(public, private['revealed_secret'])
-    return public, secret, verify_drand_beacon(public, private)
+    randomness = bytes(32) if public.get('randomness_mode') == 'server' else verify_drand_beacon(public, private)
+    return public, secret, randomness
 
 
 class VerificationTests(unittest.TestCase):
@@ -32,6 +34,54 @@ class VerificationTests(unittest.TestCase):
             public['drand_randomness'] = None
             public['drand_signature'] = None
         return public, copy.deepcopy(self.fixture['revealed'])
+
+    def server_exports(self):
+        public, private = self.exports()
+        public = {key: value for key, value in public.items() if not key.startswith('drand_')}
+        private = {key: value for key, value in private.items() if not key.startswith('drand_')}
+        public['randomness_mode'] = 'server'
+        secret = bytes.fromhex(private['revealed_secret'])
+        public['commitment_hash'] = sha(PREFIX + b'commitment\0' + secret
+            + sha(public['game_id'].encode()) + sha(deal_parameters(public)) + struct.pack('>Q', 0)).hex()
+        return public, private
+
+    def test_future_mode_cli_verifies_drand_with_mode_bound_to_hash(self):
+        public, private = self.exports(pending=True)
+        public['randomness_mode'] = 'future'
+        secret = bytes.fromhex(private['revealed_secret'])
+        public['commitment_hash'] = sha(PREFIX + b'commitment\0' + secret
+            + sha(public['game_id'].encode()) + sha(deal_parameters(public))
+            + struct.pack('>Q', public['drand_round'])).hex()
+        result = self.run_program(public, private, '1\nn\nn\n1\nq\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('drand signature and public randomness verified.', result.stdout)
+        self.assertEqual(result.stdout.count('Card indices:'), 10)
+
+    def test_server_seed_mode_replays_with_no_drand_fields(self):
+        public, private = self.server_exports()
+        c, secret, random = verify_exports(public, private)
+        deck = recreate_deck(c, secret, random, 1)
+        self.assertEqual(sorted(deck), list(range(52)))
+        self.assertEqual(len(build_hand_deals(deck, [None, None])[0]), 5)
+        self.assertFalse(any(k.startswith('drand_') for k in public))
+
+    def test_server_mode_cli_never_verifies_drand(self):
+        public, private = self.server_exports()
+        result = self.run_program(public, private, '1\nn\nn\n1\nq\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('no drand dependency', result.stdout)
+        self.assertNotIn('drand signature and', result.stdout)
+        self.assertEqual(result.stdout.count('Card indices:'), 10)
+
+    def test_randomness_mode_is_bound_and_cannot_be_changed(self):
+        public, private = self.server_exports()
+        public['randomness_mode'] = 'future'
+        with self.assertRaises((ValueError, KeyError)):
+            verify_exports(public, private)
+        public, private = self.exports()
+        public['randomness_mode'] = 'future'
+        with self.assertRaises(ValueError):
+            verify_exports(public, private)
 
     def test_known_vector_without_any_exported_hand_history(self):
         public, private = self.exports()

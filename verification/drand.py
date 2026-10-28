@@ -42,6 +42,7 @@ def verify_drand_beacon(public, private):
     A pre-beacon public copy has null values; a populated copy must match the
     revealed document exactly. None means the game ended before receiving a beacon.
     """
+    require(public.get('randomness_mode') != 'server', 'Server-seed mode does not use drand')
     require(public['drand_chain_hash'] == DRAND_CHAIN_HASH, 'Unknown drand chain')
     signature = private['drand_signature']
     if signature is None:
